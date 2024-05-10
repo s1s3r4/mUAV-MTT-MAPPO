@@ -15,6 +15,7 @@ class EnvCore(object):
         self.render = render
         self.render_num = num
         self.done = False
+        self.break_end = False
 
         self.worst_target = None
         self.worst_value = 1e8
@@ -151,9 +152,9 @@ class EnvCore(object):
         """
         if self.done:
             sub_agent_done = [True for _ in range(self.agent_num)]
-            sub_agent_obs = None
-            sub_agent_reward = None
-            sub_agent_info = None
+            sub_agent_obs = self.generate_obs()
+            sub_agent_reward = [[0.] for _ in range(self.agent_num)]
+            sub_agent_info = [{} for _ in range(self.agent_num)]
             return [sub_agent_obs, sub_agent_reward, sub_agent_done, sub_agent_info]
         self.tar_step_forward()
         sub_agent_done, sub_agent_reward, sub_agent_info = self.agent_step_forward(self.action_transform(actions))
@@ -164,6 +165,7 @@ class EnvCore(object):
                 self.render_step()
         if self.step_counter >= self.max_step_counter:
             sub_agent_done = [True for _ in range(self.agent_num)]
+            self.break_end = False
         if sub_agent_done[0]:
             if self.render:
                 self.render_step()
@@ -239,6 +241,8 @@ class EnvCore(object):
         #     for i, r in enumerate(exploration_reward):
         #         total_reward[i] += r
         penalty_pair, done = self.collsion()
+        if done:
+            self.break_end = True
         for (type_bool, index, rate) in penalty_pair:
             if type_bool:
                 total_reward[index] -= self.uu_collision_penalty * rate

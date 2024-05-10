@@ -63,7 +63,7 @@ def make_eval_env(all_args):
 
         return init_env
 
-    return DummyVecEnv([get_env_fn(i) for i in range(all_args.n_rollout_threads)])
+    return DummyVecEnv([get_env_fn(i) for i in range(all_args.n_rollout_threads)], reset=False)
 
 
 def parse_args(args, parser):

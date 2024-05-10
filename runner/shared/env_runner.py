@@ -32,7 +32,6 @@ class EnvRunner(Runner):
         this_total_t = 0.
 
         for episode in range(episodes):
-            this_total_t += self.n_rollout_threads
             if self.use_linear_lr_decay:
                 self.trainer.policy.lr_decay(episode, episodes)  # 百分比减lr
 
@@ -51,11 +50,11 @@ class EnvRunner(Runner):
                 # actions_env = self.envs.try_collision(actions_env)
                 # Observe reward and next obs
                 obs, rewards, dones, infos = self.envs.step(actions_env)  # 异步步进，完成则该训练线程继续下episode
-                for temp in dones:
-                    if True in temp and step <= self.episode_length - 3:
-                        this_done_t += 1
-                        if step <= self.episode_length - 50:
-                            this_total_t += 1
+                for index, temp in enumerate(dones):
+                    if True in temp:
+                        this_total_t += 1
+                        if self.envs.envs[index].env.break_end:
+                            this_done_t += 1
 
                 data = (
                     obs,
@@ -247,6 +246,7 @@ class EnvRunner(Runner):
         for env in self.eval_envs.envs:
             env.env.total_num_steps = total_num_steps
         for _ in range(self.eval_episodes // self.n_rollout_threads):
+            # eval_rewards_mask = np.array([False for _ in range(self.n_rollout_threads)])
             eval_obs = self.eval_envs.reset()
             this_total += self.n_rollout_threads
 
@@ -285,13 +285,14 @@ class EnvRunner(Runner):
                 # eval_actions_env = self.eval_envs.try_collision(eval_actions_env)
                 # Observe reward and next obs
                 eval_obs, eval_rewards, eval_dones, eval_infos = self.eval_envs.step(eval_actions_env)
+                # print(eval_rewards[eval_rewards_mask == False])
+                # eval_rewards[eval_rewards_mask == True] = 0.
                 eval_episode_rewards.append(eval_rewards)
-                for x in eval_dones:
+                for index, x in enumerate(eval_dones):
                     if True in x:
-                        if eval_step <= self.episode_length - 3:
+                        # eval_rewards_mask[index] = True
+                        if eval_step == self.episode_length - 2:
                             this_done += 1
-                        if eval_step <= self.episode_length - 50:
-                            this_total += 1
 
                 eval_rnn_states[eval_dones == True] = np.zeros(
                     ((eval_dones == True).sum(), self.recurrent_N, self.hidden_size),

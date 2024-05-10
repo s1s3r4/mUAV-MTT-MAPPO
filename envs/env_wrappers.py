@@ -10,8 +10,9 @@ import numpy as np
 
 # single env
 class DummyVecEnv():
-    def __init__(self, env_fns):
+    def __init__(self, env_fns, reset=True):
         self.envs = [fn() for fn in env_fns]
+        self.autoreset = reset
         env = self.envs[0]
         self.num_envs = len(env_fns)
         self.observation_space = env.observation_space
@@ -41,13 +42,14 @@ class DummyVecEnv():
         results = [env.step(a) for (a, env) in zip(self.actions, self.envs)]
         obs, rews, dones, infos = map(np.array, zip(*results))
 
-        for (i, done) in enumerate(dones):
-            if 'bool' in done.__class__.__name__:
-                if done:
-                    obs[i] = self.envs[i].reset()
-            else:
-                if np.all(done):
-                    obs[i] = self.envs[i].reset()
+        if self.autoreset:
+            for (i, done) in enumerate(dones):
+                if 'bool' in done.__class__.__name__:
+                    if done:
+                        obs[i] = self.envs[i].reset()
+                else:
+                    if np.all(done):
+                        obs[i] = self.envs[i].reset()
 
         self.actions = None
         return obs, rews, dones, infos
