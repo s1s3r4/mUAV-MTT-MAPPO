@@ -166,7 +166,7 @@ def get_config():
         default="mUAV_building",
         help="an identifier to distinguish different experiment.",
     )
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for numpy/torch")
+    parser.add_argument("--seed", type=int, default=123, help="Random seed for numpy/torch")
     parser.add_argument(
         "--cuda",
         action="store_false",

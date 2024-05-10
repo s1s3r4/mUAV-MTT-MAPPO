@@ -149,6 +149,12 @@ class EnvCore(object):
         # When self.agent_num is set to 2 agents, the input of actions is a 2-dimensional list, each list contains a shape = (self.action_dim, ) action data
         # The default parameter situation is to input a list with two elements, because the action dimension is 5, so each element shape = (5, )
         """
+        if self.done:
+            sub_agent_done = [True for _ in range(self.agent_num)]
+            sub_agent_obs = None
+            sub_agent_reward = None
+            sub_agent_info = None
+            return [sub_agent_obs, sub_agent_reward, sub_agent_done, sub_agent_info]
         self.tar_step_forward()
         sub_agent_done, sub_agent_reward, sub_agent_info = self.agent_step_forward(self.action_transform(actions))
 
@@ -163,7 +169,10 @@ class EnvCore(object):
                 self.render_step()
                 self.gif_writer.release()
             self.total_num_steps += 1
-            sub_agent_obs = self.reset()
+            self.done = True
+            sub_agent_obs = self.generate_obs()
+            if not self.render:
+                sub_agent_obs = self.reset()
         else:
             sub_agent_obs = self.generate_obs()
 
@@ -578,6 +587,8 @@ class EnvCore(object):
 #         return [sub_agent_obs, sub_agent_reward, sub_agent_done, sub_agent_info]
 
 if __name__ == '__main__':
+    # a = np.array([[1, 2, 1, 2, 1], [2, 1, 1, 1, 1]])
+    # print(a[a == 1].size)
     e = EnvCore(fix=True, render=False)
     e.try_collision([np.array([0., 0., -1.]), np.array([0., 0., -1.]), np.array([0., 0., -1.]), np.array([0., 0., 1.]),
             np.array([0., 0., 1.]), np.array([0., 0., 1.])])

@@ -28,8 +28,11 @@ class EnvRunner(Runner):
 
         start = time.time()
         episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads  # episode计算方法
+        this_done_t = 0.
+        this_total_t = 0.
 
         for episode in range(episodes):
+            this_total_t += self.n_rollout_threads
             if self.use_linear_lr_decay:
                 self.trainer.policy.lr_decay(episode, episodes)  # 百分比减lr
 
@@ -48,6 +51,11 @@ class EnvRunner(Runner):
                 # actions_env = self.envs.try_collision(actions_env)
                 # Observe reward and next obs
                 obs, rewards, dones, infos = self.envs.step(actions_env)  # 异步步进，完成则该训练线程继续下episode
+                for temp in dones:
+                    if True in temp and step <= self.episode_length - 3:
+                        this_done_t += 1
+                        if step <= self.episode_length - 100:
+                            this_total_t += 1
 
                 data = (
                     obs,
@@ -106,6 +114,12 @@ class EnvRunner(Runner):
 
                 train_infos["average_episode_rewards"] = np.mean(self.buffer.rewards) * self.episode_length
                 print("average episode rewards is {}".format(train_infos["average_episode_rewards"]))
+                print(this_done_t, ',', this_total_t)
+                train_infos["train_fail_rate"] = [this_done_t / this_total_t]
+                print("train fail rate: " + str(this_done_t / this_total_t))
+                this_done_t = 0.
+                this_total_t = 0.
+
                 self.log_train(train_infos, total_num_steps)
                 # self.log_env(env_infos, total_num_steps)
 
@@ -228,10 +242,13 @@ class EnvRunner(Runner):
     @torch.no_grad()
     def eval(self, total_num_steps):
         eval_episode_rewards = []
+        this_total = 0.
+        this_done = 0.
         for env in self.eval_envs.envs:
             env.env.total_num_steps = total_num_steps
         for _ in range(self.eval_episodes // self.n_rollout_threads):
             eval_obs = self.eval_envs.reset()
+            this_total += self.n_rollout_threads
 
             eval_rnn_states = np.zeros(
                 (self.n_eval_rollout_threads, *self.buffer.rnn_states.shape[2:]),
@@ -269,6 +286,10 @@ class EnvRunner(Runner):
                 # Observe reward and next obs
                 eval_obs, eval_rewards, eval_dones, eval_infos = self.eval_envs.step(eval_actions_env)
                 eval_episode_rewards.append(eval_rewards)
+                if eval_step == self.episode_length - 3:
+                    for x in eval_dones:
+                        if True in x:
+                            this_done += 1
 
                 eval_rnn_states[eval_dones == True] = np.zeros(
                     ((eval_dones == True).sum(), self.recurrent_N, self.hidden_size),
@@ -283,6 +304,9 @@ class EnvRunner(Runner):
         eval_env_infos["eval_average_episode_rewards"] = np.sum(np.array(eval_episode_rewards), axis=0) / (self.eval_episodes // self.n_rollout_threads)
         eval_average_episode_rewards = np.mean(eval_env_infos["eval_average_episode_rewards"])
         print("eval average episode rewards of agent: " + str(eval_average_episode_rewards))
+        eval_env_infos["eval_fail_rate"] = [this_done / this_total]
+        print(this_done, ',', this_total)
+        print("eval fail rate: " + str(this_done / this_total))
         self.log_env(eval_env_infos, total_num_steps)
 
     @torch.no_grad()
