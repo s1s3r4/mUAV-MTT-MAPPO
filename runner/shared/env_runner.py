@@ -54,7 +54,7 @@ class EnvRunner(Runner):
                 for temp in dones:
                     if True in temp and step <= self.episode_length - 3:
                         this_done_t += 1
-                        if step <= self.episode_length - 100:
+                        if step <= self.episode_length - 50:
                             this_total_t += 1
 
                 data = (
@@ -286,10 +286,12 @@ class EnvRunner(Runner):
                 # Observe reward and next obs
                 eval_obs, eval_rewards, eval_dones, eval_infos = self.eval_envs.step(eval_actions_env)
                 eval_episode_rewards.append(eval_rewards)
-                if eval_step == self.episode_length - 3:
-                    for x in eval_dones:
-                        if True in x:
+                for x in eval_dones:
+                    if True in x:
+                        if eval_step <= self.episode_length - 3:
                             this_done += 1
+                        if eval_step <= self.episode_length - 50:
+                            this_total += 1
 
                 eval_rnn_states[eval_dones == True] = np.zeros(
                     ((eval_dones == True).sum(), self.recurrent_N, self.hidden_size),
