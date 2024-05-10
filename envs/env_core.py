@@ -35,11 +35,11 @@ class EnvCore(object):
 
         self.render_interval = 10
 
-        self.uu_collision_d = 0.0025  # 50m
+        self.uu_collision_d = 0.0001  # 10m
         self.ut_collision_d = 0.04  # 200m
         self.ut_final_d = 0.04
-        self.uu_collision_penalty = 4000.
-        self.ut_collision_penalty = 400.
+        self.uu_collision_penalty = 2000.
+        self.ut_collision_penalty = 2000.
         self.C_R = 1e13
         self.C_theta = 1e13
         self.C_passive = 1e14
@@ -72,6 +72,7 @@ class EnvCore(object):
         self.target_state = np.array([0.])  # [x, y, mode], x & y km, mode {-1, 1}
         self.target_v = np.array([0.])
         self.target_next_predict = np.array([0.])
+        self.test_agent_state = self.agent_state.copy()
         self.reset()
         # self.render_init()
         pass
@@ -107,6 +108,7 @@ class EnvCore(object):
         self.target_state = np.array([[20, 10, 10], [5, 20, -10], [10, 15, -10]],
                                      dtype=np.float32)  # [x, y, mode], x & y km, mode {-1, 1}
         self.target_v = np.array([[-0.1, -0.005], [-0.02, -0.01], [-0.02, -0.05]])
+
         # self.target_v = np.array([[-0.2, -0.05], [-0.02, -0.1], [-0.01, -0.2], [-0.15, -0.1]])
         if not self.fixed:
             target_random = np.random.rand(self.target_num, 5)
@@ -400,6 +402,38 @@ class EnvCore(object):
                         done = True
         return penalty_pair, done
 
+    def try_collision(self, actions):
+        self.test_agent_state = self.agent_state.copy()
+        for i, x in enumerate(self.action_transform(actions)):
+            self.test_agent_state[i] = self.agent_state[i] + np.array(x)
+            self.test_agent_state[i][-1] = x[-1]
+        refresh = -1
+        for i in range(self.agent_num):
+            for j in range(self.target_num):
+                dis = self.euc(self.test_agent_state[i][0:2], self.target_next_predict[j][0:2])
+                if dis <= self.ut_final_d + self.pos_delta:
+                    refresh = i
+                    break
+            if refresh >= 0:
+                break
+        new_actions = actions.copy()
+        while refresh >= 0:
+            new_actions[refresh][0:2] = (np.random.rand(1, 2) - 0.5) * 2
+            refresh = -1
+            for i, x in enumerate(self.action_transform(new_actions)):
+                self.test_agent_state[i] = self.agent_state[i] + np.array(x)
+                self.test_agent_state[i][-1] = x[-1]
+            for i in range(self.agent_num):
+                for j in range(self.target_num):
+                    dis = self.euc(self.test_agent_state[i][0:2], self.target_next_predict[j][0:2])
+                    if dis <= self.ut_final_d + self.pos_delta:
+                        refresh = i
+                        break
+                if refresh >= 0:
+                    break
+        return new_actions
+
+
     def exploration(self):
         exploration_reward = []
         for i in range(self.agent_num):
@@ -545,6 +579,8 @@ class EnvCore(object):
 
 if __name__ == '__main__':
     e = EnvCore(fix=True, render=False)
+    e.try_collision([np.array([0., 0., -1.]), np.array([0., 0., -1.]), np.array([0., 0., -1.]), np.array([0., 0., 1.]),
+            np.array([0., 0., 1.]), np.array([0., 0., 1.])])
     e.step([np.array([0., 0., -1.]), np.array([0., 0., -1.]), np.array([0., 0., -1.]), np.array([0., 0., 1.]),
             np.array([0., 0., 1.]), np.array([0., 0., 1.])])
     # e.step([np.array([0., 0., 1.]), np.array([0., 0., -1.]), np.array([0., 0., -1.]), np.array([0., 0., 1.]), np.array([0., 0., -1.]),

@@ -18,6 +18,13 @@ class DummyVecEnv():
         self.share_observation_space = env.share_observation_space
         self.action_space = env.action_space
         self.actions = None
+        self.test_actions = None
+
+    def try_collision(self, actions):
+        self.test_actions = actions.copy()
+        new_actions = [env.env.try_collision(a) for (a, env) in zip(self.test_actions, self.envs)]
+        return new_actions
+
 
     def step(self, actions):
         """

@@ -44,6 +44,8 @@ class EnvRunner(Runner):
                     actions_env,
                 ) = self.collect(step)  # 采样行动及状态（无反传）
 
+                # # 鲁棒 actions
+                # actions_env = self.envs.try_collision(actions_env)
                 # Observe reward and next obs
                 obs, rewards, dones, infos = self.envs.step(actions_env)  # 异步步进，完成则该训练线程继续下episode
 
@@ -137,7 +139,7 @@ class EnvRunner(Runner):
             rnn_states,
             rnn_states_critic,
         ) = self.trainer.policy.get_actions(
-            np.concatenate(self.buffer.share_obs[step]),
+            np.concatenate(self.buffer.share_obs[step]),  # TODO: 修改critic输入
             np.concatenate(self.buffer.obs[step]),
             np.concatenate(self.buffer.rnn_states[step]),
             np.concatenate(self.buffer.rnn_states_critic[step]),
@@ -262,6 +264,8 @@ class EnvRunner(Runner):
                 else:
                     eval_actions_env = eval_actions
 
+                # # 鲁棒 actions
+                # eval_actions_env = self.eval_envs.try_collision(eval_actions_env)
                 # Observe reward and next obs
                 eval_obs, eval_rewards, eval_dones, eval_infos = self.eval_envs.step(eval_actions_env)
                 eval_episode_rewards.append(eval_rewards)
