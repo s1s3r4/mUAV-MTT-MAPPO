@@ -320,11 +320,11 @@ def get_config():
     )
 
     # optimizer parameters
-    parser.add_argument("--lr", type=float, default=5e-5, help="learning rate (default: 5e-4)")
+    parser.add_argument("--lr", type=float, default=20e-5, help="learning rate (default: 5e-4)")
     parser.add_argument(
         "--critic_lr",
         type=float,
-        default=5e-5,
+        default=20e-5,
         help="critic learning rate (default: 5e-4)",
     )
     parser.add_argument(

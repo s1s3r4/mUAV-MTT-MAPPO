@@ -291,7 +291,7 @@ class EnvRunner(Runner):
                 for index, x in enumerate(eval_dones):
                     if True in x:
                         # eval_rewards_mask[index] = True
-                        if eval_step == self.episode_length - 2:
+                        if eval_step == self.episode_length - 2 and self.envs.envs[index].env.break_end:
                             this_done += 1
 
                 eval_rnn_states[eval_dones == True] = np.zeros(
