@@ -4,6 +4,8 @@ import cv2
 # import matplotlib.pyplot as plt
 from math import *
 from scipy.linalg import LinAlgError
+from sko.SA import SA
+
 
 class EnvCore(object):
     """
@@ -27,7 +29,7 @@ class EnvCore(object):
         self.action_dim = 3
         self.max_dxy = 0.2  # UAV moving ability, km
         self.step_counter = 0
-        self.pos_delta = 1e-2
+        self.pos_delta = 1e-3
         self.v_delta = 1e-4
         self.active_gamma = 4.
         self.passive_gamma = 2.
@@ -36,13 +38,13 @@ class EnvCore(object):
 
         self.render_interval = 10
 
-        self.uu_collision_d = 0.0025  # 50m
+        self.uu_collision_d = 0.0001  # 0.0025
         if self.render:
-            self.uu_collision_d = 0.
-        self.ut_collision_d = 0.04  # 200m
-        self.ut_final_d = 0.04
-        self.uu_collision_penalty = 2000.
-        self.ut_collision_penalty = 2000.
+            self.uu_collision_d = -0.1
+        self.ut_collision_d = 0.16  # 0.04
+        self.ut_final_d = 0.16
+        self.uu_collision_penalty = 5000.
+        self.ut_collision_penalty = 5000.
         self.C_R = 1e13
         self.C_theta = 1e13
         self.C_passive = 1e14
@@ -80,7 +82,6 @@ class EnvCore(object):
         # self.render_init()
         pass
 
-
     def reset(self):
         """
         # self.agent_num设定为2个智能体时，返回值为一个list，每个list里面为一个shape = (self.obs_dim, )的观测数据
@@ -88,19 +89,18 @@ class EnvCore(object):
         """
         self.step_counter = 0
         self.done = False
-        if self.total_num_steps > 2_000_000:  # Curriculum Learning
-            rate = (self.total_num_steps - 2_000_000) / 3_000_000  # / total_steps_left - 2_000_000
-            if rate > 1.:
-                rate = 1.
-            self.target_rmin = 18. - 3. * rate  # 15.
-            self.target_rmax = 22. + 3. * rate  # 25.
-            self.target_tmin = 0. + pi / 5 * (1. - rate)  # + pi / 6  # - pi / 4
-            self.target_tmax = pi / 2 - pi / 5 * (1. - rate)  # - pi / 6  # 3 * pi / 4
-            self.targetv_rmin = 0.09 - 0.02 * rate  # 0.07
-            self.targetv_rmax = 0.11 + 0.02 * rate  # 0.13
-            self.targetv_tmin = pi + pi / 5 * (1. - rate)  # + pi / 6  # + pi / 6  # 3 * pi / 4
-            self.targetv_tmax = 3 * pi / 2 - pi / 5 * (1. - rate)  # - pi / 6  # - pi / 6  # 7 * pi / 4
-            self.target_tv_bias = pi / 3 * (1.1 - rate)
+        self.gt_performance = 0.
+        # if self.total_num_steps > 2_000_000:  # Curriculum Learning
+        #     rate = (self.total_num_steps - 2_000_000) / 4_000_000  # / total_steps_left - 2_000_000
+        #     self.target_rmin = 18. - 3. * rate  # 15.
+        #     self.target_rmax = 22. + 3. * rate  # 25.
+        #     self.target_tmin = 0. + pi / 5 * (1. - rate)  # + pi / 6  # - pi / 4
+        #     self.target_tmax = pi / 2 - pi / 5 * (1. - rate)  # - pi / 6  # 3 * pi / 4
+        #     self.targetv_rmin = 0.09 - 0.02 * rate  # 0.07
+        #     self.targetv_rmax = 0.11 + 0.02 * rate  # 0.13
+        #     self.targetv_tmin = pi + pi / 5 * (1. - rate)  # + pi / 6  # + pi / 6  # 3 * pi / 4
+        #     self.targetv_tmax = 3 * pi / 2 - pi / 5 * (1. - rate)  # - pi / 6  # - pi / 6  # 7 * pi / 4
+        #     self.target_tv_bias = pi / 3 * (1.1 - rate)
 
         # self.agent_state = np.array([[21, 9, -1], [15, 14, -1], [9, 17, -1], [1.5, 17.5, -1], [0, 14.5, -1],
         #                              [3, 20.5, -1]],
@@ -108,6 +108,8 @@ class EnvCore(object):
         self.agent_state = np.array([[0, 0, -1], [-2, 2, -1], [-4, 0, -1], [2, -2, -1], [2, 2, -1],
                                      [-2, -2, -1]],
                                     dtype=np.float32)  # [x, y, mode], x & y km, mode {-1, 1}  [0, 4, -1]
+        # self.agent_state = np.array([[0, 2, -1], [0, -2, -1]],
+        #                             dtype=np.float32)  # [x, y, mode], x & y km, mode {-1, 1}  [0, 4, -1]
         # self.target_state = np.array([[20, 10, 1], [5, 20, -1], [-2, 15, -1], [10, 18, 1]],
         #                              dtype=np.float32)  # [x, y, mode], x & y km, mode {-1, 1}
         self.target_state = np.array([[20, 10, 10], [5, 20, -10], [10, 15, -10]],
@@ -120,11 +122,13 @@ class EnvCore(object):
             random_bias = (np.random.rand() - 0.5) * 2 * self.target_tv_bias
             random_direction = np.random.rand() * 2 * np.pi
             # agent_random = np.random.rand(self.agent_num, 2)
-            target_random[:, 0] = target_random[:, 0]*(self.target_rmax-self.target_rmin)+self.target_rmin
+            target_random[:, 0] = target_random[:, 0] * (self.target_rmax - self.target_rmin) + self.target_rmin
             # changed: use random_direction for data augmenting
-            target_random[:, 1] = target_random[:, 1]*(self.target_tmax-self.target_tmin)+self.target_tmin + random_direction
+            target_random[:, 1] = target_random[:, 1] * (
+                        self.target_tmax - self.target_tmin) + self.target_tmin + random_direction
             target_random[:, 2] = target_random[:, 2] * (self.targetv_rmax - self.targetv_rmin) + self.targetv_rmin
-            target_random[:, 3] = target_random[:, 3] * (self.targetv_tmax - self.targetv_tmin) + self.targetv_tmin + random_direction + random_bias
+            target_random[:, 3] = target_random[:, 3] * (
+                        self.targetv_tmax - self.targetv_tmin) + self.targetv_tmin + random_direction + random_bias
             a = target_random[:, 0]
             b = target_random[:, 0]
             target_x = target_random[:, 0] * np.cos(target_random[:, 1])
@@ -159,7 +163,8 @@ class EnvCore(object):
             sub_agent_obs = self.generate_obs()
             sub_agent_reward = [[0.] for _ in range(self.agent_num)]
             sub_agent_info = [{} for _ in range(self.agent_num)]
-            return [sub_agent_obs, sub_agent_reward, sub_agent_done, sub_agent_info]
+            sub_agent_gt = [[0.] for _ in range(self.agent_num)]
+            return [sub_agent_obs, sub_agent_reward, sub_agent_done, sub_agent_info, sub_agent_gt]
         self.tar_step_forward()
         sub_agent_done, sub_agent_reward, sub_agent_info = self.agent_step_forward(self.action_transform(actions))
 
@@ -181,8 +186,9 @@ class EnvCore(object):
                 sub_agent_obs = self.reset()
         else:
             sub_agent_obs = self.generate_obs()
+        sub_agent_gt = [[self.gt_performance] for _ in range(self.agent_num)]
 
-        return [sub_agent_obs, sub_agent_reward, sub_agent_done, sub_agent_info]
+        return [sub_agent_obs, sub_agent_reward, sub_agent_done, sub_agent_info, sub_agent_gt]
 
     def generate_obs(self):
         sub_agent_obs = []
@@ -228,7 +234,8 @@ class EnvCore(object):
             else:
                 agent_pair.append([False, len(passive_agent)])
                 passive_agent.append(self.agent_state[i][0:2])
-        shared_reward = self.tracking_effect(no_jam_target, jam_target, active_agent, passive_agent, target_output=True)
+        shared_reward = self.tracking_effect(no_jam_target, jam_target, active_agent, passive_agent, target_output=True,
+                                             gt=True)
         total_reward = []
         for i in range(self.agent_num):
             temp_a_agent = active_agent.copy()
@@ -260,7 +267,6 @@ class EnvCore(object):
             rewards.append([reward])
         return dones, rewards, sub_agent_info
 
-
     def action_transform(self, actions):
         t_actions = []
         for action in actions:
@@ -284,7 +290,7 @@ class EnvCore(object):
     def theta(self, vec1, vec2):
         return abs(np.dot(vec1, vec2)) / self.vec_norm(vec1) / self.vec_norm(vec2)
 
-    def tracking_effect(self, no_jam_target, jam_target, active_agent, passive_agent, target_output=False):
+    def tracking_effect(self, no_jam_target, jam_target, active_agent, passive_agent, target_output=False, gt=False):
         # compute active tracking
         var_list = []
         if target_output:
@@ -302,8 +308,8 @@ class EnvCore(object):
                 fisher_mat = np.zeros((2, 2))
                 for agent in active_agent:
                     R = self.euc(target, agent)
-                    G = np.array([(target-agent)/R, (agent-target)[::-1]/R/R])
-                    sigma_inv = np.diag([self.C_R/(R**self.active_gamma), self.C_theta/(R**self.active_gamma)])
+                    G = np.array([(target - agent) / R, (agent - target)[::-1] / R / R])
+                    sigma_inv = np.diag([self.C_R / (R ** self.active_gamma), self.C_theta / (R ** self.active_gamma)])
                     fisher_mat += np.matmul(np.matmul(G.T, sigma_inv), G)
                 try:
                     new_var = np.trace(np.linalg.inv(fisher_mat))
@@ -350,51 +356,19 @@ class EnvCore(object):
                         self.worst_target = [target, 1]
                         self.worst_value = self.large
         reward = self.target_num / (sum(var_list) + sum(p_var_list))
+        if gt:
+            gt_performance = (sum(var_list) + sum(p_var_list)) / self.target_num
+            if gt_performance <= 0.:
+                gt_performance = self.large
+            self.gt_performance = -log(gt_performance, 10.)
         try:
             if reward <= 0.:
                 reward = 1. / self.large
             x = 3 * log(reward, 10.) + 2
         except ValueError:
-            print('Wrong reward: '+str(reward))
+            print('Wrong reward: ' + str(reward))
             raise ValueError
         return x
-        # return reward ** 0.5
-        # # 草率拟合版本
-        # # compute active tracking
-        # fisher_list = []
-        # for target in no_jam_target:
-        #     fisher_info = 1e-10
-        #     for agent in active_agent:
-        #         distance = self.euc(target, agent)
-        #         fisher_info += 1. / (distance ** self.active_gamma)
-        #     fisher_list.append(fisher_info)
-        # temp = 0.
-        # for info in fisher_list:
-        #     temp += 1. / info
-        #
-        # # compute passive tracking
-        # p_fisher_list = []
-        # for target in jam_target:
-        #     fisher_info = 1e-10
-        #     for i, agent_i in enumerate(passive_agent):
-        #         for j, agent_j in enumerate(passive_agent):
-        #             if i >= j:
-        #                 continue
-        #             baseline = self.euc(agent_i, agent_j)
-        #             agent_aver = (agent_i + agent_j) / 2
-        #             distance = (self.euc(agent_i, target) + self.euc(agent_j, target)) / 2
-        #             baseline_v = agent_j - agent_i
-        #             baseline_t = baseline_v.copy()
-        #             baseline_t[0] = baseline_v[1]
-        #             baseline_t[1] = -baseline_v[0]
-        #             target_v = target - agent_aver
-        #             inner = self.theta(baseline_t, target_v)
-        #             fisher_info += 10. * (inner ** 2) * baseline / (distance ** self.passive_gamma)
-        #     p_fisher_list.append(fisher_info)
-        # for info in p_fisher_list:
-        #     temp += 1. / info
-        # reward = self.target_num / temp
-        # return reward
 
     def collsion(self):
         penalty_pair = []
@@ -407,6 +381,8 @@ class EnvCore(object):
                     penalty_pair.append((True, i, 1.))
                     penalty_pair.append((True, j, 1.))
                     done = True
+                    if self.render:
+                        print('eval uu c! ' + str(self.agent_state[i][0:2]) + ',' + str(self.agent_state[j][0:2]))
             for j in range(self.target_num):
                 dis = self.euc(self.agent_state[i][0:2], self.target_state[j][0:2])
                 if dis <= self.ut_collision_d:
@@ -417,9 +393,30 @@ class EnvCore(object):
                     else:
                         penalty_pair.append((False, i, 1.))
                         done = True
+                    if self.render:
+                        print('eval ut c! ' + str(self.agent_state[i][0:2]) + ',' + str(self.target_state[j][0:2]))
         return penalty_pair, done
 
-    def try_collision(self, actions):
+    def SA_target(self, this_action):
+        self.test_agent_state[self.refreshed_agent][0:2] = self.agent_state[self.refreshed_agent][0:2] + this_action
+        active_agent = []
+        passive_agent = []
+        for i in range(self.agent_num):
+            if self.test_agent_state[i][2] >= 0:
+                active_agent.append(self.test_agent_state[i][0:2])
+            else:
+                passive_agent.append(self.test_agent_state[i][0:2])
+        shared_reward = self.tracking_effect(self.no_jam_target, self.jam_target, active_agent, passive_agent)
+        for j in range(self.target_num):
+            dis = self.euc(self.test_agent_state[self.refreshed_agent][0:2], self.target_next_predict[j][0:2])
+            if dis <= self.ut_final_d + 30 * self.pos_delta:
+                shared_reward -= self.ut_collision_penalty
+                break
+        if abs(this_action[0]) > 1 or abs(this_action[1]) > 1:
+            shared_reward -= 5000
+        return -shared_reward
+
+    def try_collision_sample(self, actions):
         self.test_agent_state = self.agent_state.copy()
         for i, x in enumerate(self.action_transform(actions)):
             self.test_agent_state[i] = self.agent_state[i] + np.array(x)
@@ -428,13 +425,15 @@ class EnvCore(object):
         for i in range(self.agent_num):
             for j in range(self.target_num):
                 dis = self.euc(self.test_agent_state[i][0:2], self.target_next_predict[j][0:2])
-                if dis <= self.ut_final_d + self.pos_delta:
+                if dis <= self.ut_final_d + 30 * self.pos_delta:
                     refresh = i
                     break
             if refresh >= 0:
                 break
         new_actions = actions.copy()
+        round = 0
         while refresh >= 0:
+            round += 1
             new_actions[refresh][0:2] = (np.random.rand(1, 2) - 0.5) * 2
             refresh = -1
             for i, x in enumerate(self.action_transform(new_actions)):
@@ -443,13 +442,51 @@ class EnvCore(object):
             for i in range(self.agent_num):
                 for j in range(self.target_num):
                     dis = self.euc(self.test_agent_state[i][0:2], self.target_next_predict[j][0:2])
-                    if dis <= self.ut_final_d + self.pos_delta:
+                    if dis <= self.ut_final_d + 30 * self.pos_delta:
                         refresh = i
                         break
                 if refresh >= 0:
                     break
+            if round >= 100:
+                new_actions = actions
+                break
         return new_actions
 
+    def try_collision(self, actions):
+        # actions = self.action_transform(actions)
+        self.test_agent_state = self.agent_state.copy()
+        for i, x in enumerate(self.action_transform(actions)):
+            self.test_agent_state[i] = self.agent_state[i] + np.array(x)
+            self.test_agent_state[i][-1] = x[-1]
+        self.no_jam_target = []
+        self.jam_target = []
+        for i in range(self.target_num):
+            if self.target_state[i][2] >= 0:
+                self.jam_target.append(self.target_state[i][0:2])
+            else:
+                self.no_jam_target.append(self.target_state[i][0:2])
+
+        need_refresh = []
+        for i in range(self.agent_num):
+            for j in range(self.target_num):
+                dis = self.euc(self.test_agent_state[i][0:2], self.target_next_predict[j][0:2])
+                if dis <= self.ut_final_d + 30 * self.pos_delta:
+                    need_refresh.append(i)
+                    break
+        new_actions = actions.copy()
+        for refresh in need_refresh:
+            self.refreshed_agent = refresh
+            sa = SA(func=self.SA_target, x0=new_actions[refresh][0:2], T_max=100, T_min=20, max_stay_counter=20)
+            this_action, value = sa.run()
+            new_actions[refresh][0] = this_action[0]
+            new_actions[refresh][1] = this_action[1]
+            for i, x in enumerate(new_actions):
+                self.test_agent_state[i] = self.agent_state[i] + np.array(x)
+                self.test_agent_state[i][-1] = x[-1]
+        # for i,x in enumerate(new_actions):
+        #     new_actions[i][0:2] = new_actions[i][0:2]/self.max_dxy
+        nnew_actions = self.try_collision_sample(new_actions)
+        return nnew_actions
 
     def exploration(self):
         exploration_reward = []
@@ -518,8 +555,6 @@ class EnvCore(object):
         # self.draw_x(400-2*f, 450-2*f, 5, self.blue_d)
         self.gif_writer.write(self.map)
 
-
-
     def draw_circle(self, x, y, r, color_d):
         center = np.array([x, y])
         xmin = max(0, floor(x - r))
@@ -530,7 +565,6 @@ class EnvCore(object):
             for j in range(ymin, ymax):
                 if self.euc(np.array([i, j]), center) <= r ** 2 + 0.0001:
                     self.map[i][j][:] -= color_d
-
 
     def draw_x(self, x, y, lx, color_d):
         for i in range(lx):
@@ -544,9 +578,6 @@ class EnvCore(object):
                     self.map[x + i][y - i][:] -= color_d
                 if y + i < self.map.shape[1]:
                     self.map[x + i][y + i][:] -= color_d
-
-
-
 
 
 ###################################################################
@@ -598,9 +629,10 @@ if __name__ == '__main__':
     # a = np.array([[1, 2, 1, 2, 1], [2, 1, 1, 1, 1]])
     # print(a[a == 1].size)
     e = EnvCore(fix=True, render=False)
-    e.try_collision([np.array([0., 0., -1.]), np.array([0., 0., -1.]), np.array([0., 0., -1.]), np.array([0., 0., 1.]),
-            np.array([0., 0., 1.]), np.array([0., 0., 1.])])
-    e.step([np.array([0., 0., -1.]), np.array([0., 0., -1.]), np.array([0., 0., -1.]), np.array([0., 0., 1.]),
-            np.array([0., 0., 1.]), np.array([0., 0., 1.])])
+    na = e.try_collision(
+        [np.array([0., 0., -1.]), np.array([0., 0., -1.]), np.array([0., 0., -1.]), np.array([0., 0., 1.]),
+         np.array([0., 0., 1.]), np.array([0., 0., 1.])])
+    e.step(na)
+    print(1)
     # e.step([np.array([0., 0., 1.]), np.array([0., 0., -1.]), np.array([0., 0., -1.]), np.array([0., 0., 1.]), np.array([0., 0., -1.]),
     #         np.array([0., 0., 1.])])
